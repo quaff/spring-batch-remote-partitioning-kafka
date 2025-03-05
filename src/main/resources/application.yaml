@@ -1,0 +1,10 @@
+spring.kafka.consumer:
+  value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+  properties.spring.json.trusted.packages: "*"
+  auto-offset-reset: earliest
+  group-id: spring-batch-remote-partitioning-kafka
+
+spring.kafka.producer:
+  value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+spring.task.execution.pool.coreSize: 10
