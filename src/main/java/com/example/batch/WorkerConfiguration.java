@@ -32,18 +32,18 @@ import org.springframework.transaction.PlatformTransactionManager;
 class WorkerConfiguration {
 
 	@Bean
-	IntegrationFlow inboundFlow(MessageChannel inputChannel, ConsumerFactory<String, String> cf, NewTopic workerTopic) {
-		return IntegrationFlow
-				.from(Kafka.messageDrivenChannelAdapter(cf, workerTopic.name()))
-				.channel(inputChannel)
-				.get();
-	}
-
-	@Bean
 	MessageChannel inputChannel(TaskExecutor taskExecutor) {
 		// return new DirectChannel(); // will execute steps sequentially if concurrency of kafka listener is 1
 		// return new QueueChannel(); // will execute steps sequentially if taskExecutor of PollerMetadata not set
 		return new ExecutorChannel(taskExecutor);
+	}
+
+	@Bean
+	IntegrationFlow inboundFlow(MessageChannel inputChannel, ConsumerFactory<String, String> consumerFactory, NewTopic workerTopic) {
+		return IntegrationFlow
+				.from(Kafka.messageDrivenChannelAdapter(consumerFactory, workerTopic.name()))
+				.channel(inputChannel)
+				.get();
 	}
 
 	@Bean

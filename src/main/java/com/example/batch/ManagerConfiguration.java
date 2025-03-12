@@ -28,7 +28,6 @@ import org.springframework.messaging.MessageChannel;
 @Configuration
 class ManagerConfiguration {
 
-
 	@Bean
 	MessageChannel outputChannel() {
 		return new DirectChannel();
@@ -38,8 +37,8 @@ class ManagerConfiguration {
 	IntegrationFlow outboundFlow(MessageChannel outputChannel, KafkaTemplate<?, ?> kafkaTemplate, NewTopic workerTopic) {
 		KafkaProducerMessageHandler<?, ?> messageHandler = new KafkaProducerMessageHandler<>(kafkaTemplate);
 		messageHandler.setTopicExpression(new LiteralExpression(workerTopic.name()));
-		Function<Message<?>, Long> partitionIdFn = (m) -> {
-			StepExecutionRequest executionRequest = (StepExecutionRequest) m.getPayload();
+		Function<Message<StepExecutionRequest>, Long> partitionIdFn = (m) -> {
+			StepExecutionRequest executionRequest = m.getPayload();
 			return executionRequest.getStepExecutionId() % workerTopic.numPartitions();
 		};
 		messageHandler.setPartitionIdExpression(new FunctionExpression<>(partitionIdFn));
@@ -60,29 +59,24 @@ class ManagerConfiguration {
 
 	@Bean
 	Partitioner partitioner() {
-		return new Partitioner() {
-
-			static final String PARTITION_PREFIX = "partition";
-
-			@Override
-			public Map<String, ExecutionContext> partition(int gridSize) {
-				Map<String, ExecutionContext> partitions = new HashMap<>();
-				for (int i = 0; i < gridSize; i++) {
-					ExecutionContext executionContext = new ExecutionContext();
-					int range = 100;
-					executionContext.put("id.min", i * range + 1);
-					executionContext.put("id.max", (i + 1) * range);
-					partitions.put(PARTITION_PREFIX + i, executionContext);
-				}
-				return partitions;
+		return (int gridSize) -> {
+			Map<String, ExecutionContext> partitions = new HashMap<>();
+			for (int i = 0; i < gridSize; i++) {
+				ExecutionContext executionContext = new ExecutionContext();
+				int range = 100;
+				executionContext.put("id.min", i * range + 1);
+				executionContext.put("id.max", (i + 1) * range);
+				partitions.put("partition" + i, executionContext);
 			}
+			return partitions;
 		};
 	}
 
 	@Bean
-	Step partitionerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory, MessageChannel outputChannel) {
+	Step partitionerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
+						 Partitioner partitioner, MessageChannel outputChannel) {
 		return stepBuilderFactory.get("partitionerStep")
-				.partitioner("workerStep", partitioner())
+				.partitioner("workerStep", partitioner)
 				.gridSize(10)
 				.outputChannel(outputChannel)
 				.build();
