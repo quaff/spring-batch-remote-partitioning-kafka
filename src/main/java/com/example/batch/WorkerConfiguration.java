@@ -1,12 +1,8 @@
 package com.example.batch;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.stream.IntStream;
 import javax.sql.DataSource;
 
-import jakarta.annotation.PostConstruct;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -16,7 +12,6 @@ import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.support.IteratorItemReader;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -91,20 +86,4 @@ class WorkerConfiguration {
 
 	}
 
-	@Autowired
-	DataSource dataSource;
-
-	@PostConstruct
-	void createTables() throws Exception {
-		try (Connection conn = dataSource.getConnection()) {
-			try (ResultSet rs = conn.getMetaData().getTables(conn.getCatalog(), conn.getSchema(), "customer", new String[]{"TABLE"})) {
-				if (rs.next()) {
-					return;
-				}
-			}
-			try (Statement stmt = conn.createStatement()) {
-				stmt.execute("create table customer(id integer)");
-			}
-		}
-	}
 }

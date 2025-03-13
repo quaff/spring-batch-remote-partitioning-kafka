@@ -9,4 +9,5 @@ spring.kafka.producer:
 
 spring.task.execution.pool.coreSize: 10
 
+spring.sql.init.mode: always
 spring.batch.jdbc.initialize-schema: always
