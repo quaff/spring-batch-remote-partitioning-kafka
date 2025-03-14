@@ -1,1 +1,1 @@
-create table if not exists customer(id integer);
+create table if not exists customer(id integer primary key, name varchar(255));
