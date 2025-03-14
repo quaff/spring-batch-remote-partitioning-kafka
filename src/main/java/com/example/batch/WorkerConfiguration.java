@@ -24,30 +24,31 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.transaction.PlatformTransactionManager;
 
-import static com.example.batch.ManagerConfiguration.CUSTOMER_FILE_LOCATION;
+import static com.example.batch.JobConfiguration.CHUNK_SIZE;
+import static com.example.batch.JobConfiguration.CUSTOMER_FILE_LOCATION;
 
 @Configuration
 class WorkerConfiguration {
 
 	@Bean
-	Step workerStep(RemotePartitioningWorkerStepBuilderFactory stepBuilderFactory,
+	Step importCustomerWorkerStep(RemotePartitioningWorkerStepBuilderFactory stepBuilderFactory,
 					PlatformTransactionManager transactionManager, MessageChannel inputChannel,
-					ItemReader<Customer> customerItemReader, ItemProcessor<Customer, Customer> customerItemProcessor,
-					ItemWriter<Customer> customerItemWriter) {
-		return stepBuilderFactory.get("workerStep")
+					ItemReader<Customer> importCustomerItemReader, ItemProcessor<Customer, Customer> importCustomerItemProcessor,
+					ItemWriter<Customer> importCustomerItemWriter) {
+		return stepBuilderFactory.get("importCustomerWorkerStep")
 				.inputChannel(inputChannel)
-				.<Customer, Customer>chunk(10, transactionManager)
-				.reader(customerItemReader)
-				.processor(customerItemProcessor)
-				.writer(customerItemWriter)
+				.<Customer, Customer>chunk(CHUNK_SIZE, transactionManager)
+				.reader(importCustomerItemReader)
+				.processor(importCustomerItemProcessor)
+				.writer(importCustomerItemWriter)
 				.build();
 	}
 
 	@Bean
 	@StepScope
-	FlatFileItemReader<Customer> customerItemReader(@Value("#{stepExecutionContext['linesToSkip']}") int linesToSkip, @Value("#{stepExecutionContext['maxItemCount']}") int maxItemCount) {
+	FlatFileItemReader<Customer> importCustomerItemReader(@Value("#{stepExecutionContext['linesToSkip']}") int linesToSkip, @Value("#{stepExecutionContext['maxItemCount']}") int maxItemCount) {
 		return new FlatFileItemReaderBuilder<Customer>()
-				.name("customerItemReader")
+				.name("importCustomerItemReader")
 				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION))
 				.delimited()
 				.names("id", "name")
@@ -58,7 +59,7 @@ class WorkerConfiguration {
 	}
 
 	@Bean
-	ItemProcessor<Customer, Customer> customerItemProcessor() {
+	ItemProcessor<Customer, Customer> importCustomerItemProcessor() {
 		return item -> {
 			try {
 				Thread.sleep(50); // simulation
@@ -70,7 +71,7 @@ class WorkerConfiguration {
 	}
 
 	@Bean
-	ItemWriter<Customer> customerItemWriter(DataSource dataSource) {
+	ItemWriter<Customer> importCustomerItemWriter(DataSource dataSource) {
 		return new JdbcBatchItemWriterBuilder<Customer>()
 				.beanMapped()
 				.dataSource(dataSource)

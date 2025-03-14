@@ -12,7 +12,9 @@ import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.flow.Flow;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.repository.JobRepository;
@@ -20,14 +22,17 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.integration.partition.RemotePartitioningManagerStepBuilderFactory;
 import org.springframework.batch.integration.partition.StepExecutionRequest;
 import org.springframework.batch.item.ExecutionContext;
-import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
+import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.item.file.builder.FlatFileItemWriterBuilder;
 import org.springframework.batch.item.support.IteratorItemReader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.expression.common.LiteralExpression;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
@@ -38,52 +43,111 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import javax.sql.DataSource;
+
 @Configuration
-class ManagerConfiguration {
+class JobConfiguration {
+
+	public static final int CHUNK_SIZE = 10;
 
 	public static final int CUSTOMER_COUNT = 789;
 
 	public static final String CUSTOMER_FILE_LOCATION = "build/customer.txt";
 
+	public static final int USER_COUNT = 1000;
+
+	public static final String USER_FILE_LOCATION = "build/user.txt";
+
 	private static final int PARTITION_COUNT = 10;
 
 	@Bean
-	Job partitioningJob(JobRepository jobRepository, Step generatingFileStep, Step partitionerStep) {
-		return new JobBuilder("partitioningJob", jobRepository)
-				.start(generatingFileStep)
-				.next(partitionerStep)
+	Job demoJob(TaskExecutor taskExecutor, JobRepository jobRepository,
+				Step generatingUserFileStep, Step importUserStep,
+				Step generatingCustomerFileStep, Step importCustomerManagerStep) {
+		Flow userFlow = new FlowBuilder<Flow>("userFlow").from(generatingUserFileStep).next(importUserStep).end();
+		Flow customerFlow = new FlowBuilder<Flow>("customerFlow").from(generatingCustomerFileStep).next(importCustomerManagerStep).end();
+		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(taskExecutor).add(userFlow, customerFlow).build();
+		return new JobBuilder("demoJob", jobRepository)
+				.start(splitFlow)
+				.end()
 				.incrementer(new RunIdIncrementer())
 				.build();
 	}
 
 	@Bean
-	Step generatingFileStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-							ItemReader<Integer> generatingFileItemReader,
-							ItemProcessor<Integer, Customer> generatingFileItemProcessor,
-							ItemWriter<Customer> generatingFileItemWriter
-	) {
-		return new StepBuilder("generatingFileStep", jobRepository)
-				.<Integer, Customer>chunk(10, transactionManager)
-				.reader(generatingFileItemReader)
-				.processor(generatingFileItemProcessor)
-				.writer(generatingFileItemWriter)
+	Step generatingUserFileStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+								ItemReader<User> generatingUserFileItemReader, ItemWriter<User> generatingUserFileItemWriter) {
+		return new StepBuilder("generatingUserFileStep", jobRepository)
+				.<User, User>chunk(CHUNK_SIZE, transactionManager)
+				.reader(generatingUserFileItemReader)
+				.writer(generatingUserFileItemWriter)
 				.build();
 	}
 
 	@Bean
-	ItemReader<Integer> generatingFileItemReader() {
-		return new IteratorItemReader<>(IntStream.rangeClosed(1, CUSTOMER_COUNT).iterator());
+	ItemReader<User> generatingUserFileItemReader() {
+		return new IteratorItemReader<>(IntStream.rangeClosed(1, USER_COUNT).mapToObj(i -> new User(i, "user" + i)).iterator());
 	}
 
 	@Bean
-	ItemProcessor<Integer, Customer> generatingFileItemProcessor() {
-		return id -> new Customer(id, "name" + id);
+	ItemWriter<User> generatingUserFileItemWriter() {
+		return new FlatFileItemWriterBuilder<User>()
+				.name("generatingUserFileItemWriter")
+				.resource(new FileSystemResource(USER_FILE_LOCATION))
+				.lineAggregator(user -> user.id() + "," + user.name())
+				.build();
 	}
 
 	@Bean
-	ItemWriter<Customer> generatingFileItemWriter() {
+	Step importUserStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+						ItemReader<User> importUserItemReader, ItemWriter<User> importUserItemWriter) {
+		return new StepBuilder("importUserStep", jobRepository)
+				.<User, User>chunk(CHUNK_SIZE, transactionManager)
+				.reader(importUserItemReader)
+				.writer(importUserItemWriter)
+				.build();
+	}
+
+	@Bean
+	FlatFileItemReader<User> importUserItemReader() {
+		return new FlatFileItemReaderBuilder<User>()
+				.name("importUserItemReader")
+				.resource(new FileSystemResource(USER_FILE_LOCATION))
+				.delimited()
+				.names("id", "name")
+				.targetType(User.class)
+				.build();
+	}
+
+	@Bean
+	ItemWriter<User> importUserItemWriter(DataSource dataSource) {
+		return new JdbcBatchItemWriterBuilder<User>()
+				.beanMapped()
+				.dataSource(dataSource)
+				.sql("insert into user (id,name) values (:id,:name)")
+				.build();
+	}
+
+	@Bean
+	Step generatingCustomerFileStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+									ItemReader<Customer> generatingCustomerFileItemReader,
+									ItemWriter<Customer> generatingCustomerFileItemWriter) {
+		return new StepBuilder("generatingCustomerFileStep", jobRepository)
+				.<Customer, Customer>chunk(CHUNK_SIZE, transactionManager)
+				.reader(generatingCustomerFileItemReader)
+				.writer(generatingCustomerFileItemWriter)
+				.build();
+	}
+
+	@Bean
+	ItemReader<Customer> generatingCustomerFileItemReader() {
+		return new IteratorItemReader<>(IntStream.rangeClosed(1, CUSTOMER_COUNT).mapToObj(i -> new Customer(i, "customer" + i)).iterator());
+	}
+
+	@Bean
+	ItemWriter<Customer> generatingCustomerFileItemWriter() {
 		return new FlatFileItemWriterBuilder<Customer>()
-				.name("generatingFileItemWriter")
+				.name("generatingCustomerFileItemWriter")
 				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION))
 				.lineAggregator(customer -> customer.id() + "," + customer.name())
 				.headerCallback(writer -> writer.write(String.valueOf(CUSTOMER_COUNT)))
@@ -91,17 +155,17 @@ class ManagerConfiguration {
 	}
 
 	@Bean
-	Step partitionerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
-						 Partitioner partitioner, MessageChannel outputChannel) {
-		return stepBuilderFactory.get("partitionerStep")
-				.partitioner("workerStep", partitioner)
+	Step importCustomerManagerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
+								   Partitioner importCustomerPartitioner, MessageChannel outputChannel) {
+		return stepBuilderFactory.get("importCustomerManagerStep")
+				.partitioner("importCustomerWorkerStep", importCustomerPartitioner)
 				.gridSize(PARTITION_COUNT)
 				.outputChannel(outputChannel)
 				.build();
 	}
 
 	@Bean
-	Partitioner partitioner() {
+	Partitioner importCustomerPartitioner() {
 		return (int gridSize) -> {
 			int count;
 			try {

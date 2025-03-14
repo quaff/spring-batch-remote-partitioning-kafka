@@ -17,6 +17,7 @@ class DemoApplicationTests {
 
 	@Test
 	void test() {
-		assertThat(jdbcTemplate.queryForObject("select count(*) from customer", int.class)).isEqualTo(ManagerConfiguration.CUSTOMER_COUNT);
+		assertThat(jdbcTemplate.queryForObject("select count(*) from user", int.class)).isEqualTo(JobConfiguration.USER_COUNT);
+		assertThat(jdbcTemplate.queryForObject("select count(*) from customer", int.class)).isEqualTo(JobConfiguration.CUSTOMER_COUNT);
 	}
 } 
