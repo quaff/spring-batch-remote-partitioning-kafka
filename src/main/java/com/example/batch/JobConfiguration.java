@@ -101,7 +101,8 @@ class JobConfiguration {
 		return new FlatFileItemWriterBuilder<User>()
 				.name("generatingUserFileItemWriter")
 				.resource(new FileSystemResource(USER_FILE_LOCATION))
-				.lineAggregator(user -> user.id() + "," + user.name())
+				.delimited()
+				.names("id", "name")
 				.build();
 	}
 
@@ -156,7 +157,8 @@ class JobConfiguration {
 		return new FlatFileItemWriterBuilder<Customer>()
 				.name("generatingCustomerFileItemWriter")
 				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION))
-				.lineAggregator(customer -> customer.id() + "," + customer.name())
+				.delimited()
+				.names("id", "name")
 				.headerCallback(writer -> writer.write(String.valueOf(CUSTOMER_COUNT)))
 				.build();
 	}
