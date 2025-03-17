@@ -5,13 +5,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.StepExecution;
+import org.springframework.batch.core.StepExecutionListener;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.Flow;
@@ -32,12 +37,14 @@ import org.springframework.batch.item.support.IteratorItemReader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.expression.common.LiteralExpression;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.expression.FunctionExpression;
 import org.springframework.integration.kafka.outbound.KafkaProducerMessageHandler;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -156,25 +163,31 @@ class JobConfiguration {
 
 	@Bean
 	Step importCustomerManagerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
-								   Partitioner importCustomerPartitioner, MessageChannel outputChannel) {
+								   Partitioner importCustomerPartitioner, JdbcTemplate jdbcTemplate,
+								   MessageChannel outputChannel) {
 		return stepBuilderFactory.get("importCustomerManagerStep")
 				.partitioner("importCustomerWorkerStep", importCustomerPartitioner)
+				.listener(new StepExecutionListener() {
+					@Override
+					public ExitStatus afterStep(StepExecution stepExecution) {
+						Integer expectedRows = parseFirstLineAsInteger(new FileSystemResource(CUSTOMER_FILE_LOCATION));
+						Integer actualRows = jdbcTemplate.queryForObject("select count(*) from customer", int.class);
+						if (!Objects.equals(expectedRows, actualRows)) {
+							return ExitStatus.FAILED.addExitDescription("Expected rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
+						}
+						return null;
+					}
+				})
 				.gridSize(PARTITION_COUNT)
 				.outputChannel(outputChannel)
 				.build();
 	}
 
+	@StepScope
 	@Bean
 	Partitioner importCustomerPartitioner() {
 		return (int gridSize) -> {
-			int count;
-			try {
-				try (Stream<String> lines = Files.lines(new FileSystemResource(CUSTOMER_FILE_LOCATION).getFile().toPath(), StandardCharsets.UTF_8)) {
-					count = Integer.parseInt(lines.findFirst().orElseThrow());
-				}
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
+			int count = parseFirstLineAsInteger(new FileSystemResource(CUSTOMER_FILE_LOCATION));
 			int partitionSize = count / gridSize;
 			if (count % gridSize > 0) {
 				partitionSize++;
@@ -209,5 +222,15 @@ class JobConfiguration {
 				.log()
 				.handle(messageHandler)
 				.get();
+	}
+
+	private static int parseFirstLineAsInteger(Resource resource) {
+		try {
+			try (Stream<String> lines = Files.lines(resource.getFile().toPath(), StandardCharsets.UTF_8)) {
+				return Integer.parseInt(lines.findFirst().orElseThrow());
+			}
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
 	}
 }
