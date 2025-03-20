@@ -3,6 +3,7 @@ package com.example.batch;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -13,6 +14,9 @@ import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobParameter;
+import org.springframework.batch.core.JobParametersInvalidException;
+import org.springframework.batch.core.JobParametersValidator;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.StepExecution;
 import org.springframework.batch.core.StepExecutionListener;
@@ -20,7 +24,6 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.Flow;
-import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
@@ -29,11 +32,14 @@ import org.springframework.batch.integration.partition.StepExecutionRequest;
 import org.springframework.batch.item.ExecutionContext;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.FlatFileItemWriter;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.item.file.builder.FlatFileItemWriterBuilder;
 import org.springframework.batch.item.support.IteratorItemReader;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
@@ -55,29 +61,32 @@ import javax.sql.DataSource;
 @Configuration
 class JobConfiguration {
 
+	public static final String JOB_PARAMETER_DATE = "date";
+
+	public static final String JOB_PARAMETER_USER_COUNT = "user.count";
+
+	public static final String JOB_PARAMETER_CUSTOMER_COUNT = "customer.count";
+
 	public static final int CHUNK_SIZE = 10;
 
-	public static final int CUSTOMER_COUNT = 789;
-
-	public static final String CUSTOMER_FILE_LOCATION = "build/customer.txt";
-
-	public static final int USER_COUNT = 1000;
+	public static final int PARTITION_COUNT = 10;
 
 	public static final String USER_FILE_LOCATION = "build/user.txt";
 
-	private static final int PARTITION_COUNT = 10;
+	public static final String CUSTOMER_FILE_LOCATION = "build/customer.txt";
 
 	@Bean
 	Job demoJob(TaskExecutor taskExecutor, JobRepository jobRepository,
 				Step generatingUserFileStep, Step importUserStep,
-				Step generatingCustomerFileStep, Step importCustomerManagerStep) {
+				Step generatingCustomerFileStep, Step importCustomerManagerStep,
+				JobParametersValidator validator) {
 		Flow userFlow = new FlowBuilder<Flow>("userFlow").from(generatingUserFileStep).next(importUserStep).end();
 		Flow customerFlow = new FlowBuilder<Flow>("customerFlow").from(generatingCustomerFileStep).next(importCustomerManagerStep).end();
 		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(taskExecutor).add(userFlow, customerFlow).build();
 		return new JobBuilder("demoJob", jobRepository)
 				.start(splitFlow)
 				.end()
-				.incrementer(new RunIdIncrementer())
+				.validator(validator)
 				.build();
 	}
 
@@ -92,15 +101,17 @@ class JobConfiguration {
 	}
 
 	@Bean
-	ItemReader<User> generatingUserFileItemReader() {
-		return new IteratorItemReader<>(IntStream.rangeClosed(1, USER_COUNT).mapToObj(i -> new User(i, "user" + i)).iterator());
+	@StepScope
+	IteratorItemReader<User> generatingUserFileItemReader(@Value("#{jobParameters['" + JOB_PARAMETER_USER_COUNT + "']}") int count) {
+		return new IteratorItemReader<>(IntStream.rangeClosed(1, count).mapToObj(i -> new User(i, "user" + i)).iterator());
 	}
 
 	@Bean
-	ItemWriter<User> generatingUserFileItemWriter() {
+	@StepScope
+	FlatFileItemWriter<User> generatingUserFileItemWriter(@Value("#{jobParameters['" + JOB_PARAMETER_DATE + "']}") LocalDate date) {
 		return new FlatFileItemWriterBuilder<User>()
 				.name("generatingUserFileItemWriter")
-				.resource(new FileSystemResource(USER_FILE_LOCATION))
+				.resource(new FileSystemResource(USER_FILE_LOCATION + '.' + date))
 				.delimited()
 				.names("id", "name")
 				.build();
@@ -117,10 +128,11 @@ class JobConfiguration {
 	}
 
 	@Bean
-	FlatFileItemReader<User> importUserItemReader() {
+	@StepScope
+	FlatFileItemReader<User> importUserItemReader(@Value("#{jobParameters['" + JOB_PARAMETER_DATE + "']}") LocalDate date) {
 		return new FlatFileItemReaderBuilder<User>()
 				.name("importUserItemReader")
-				.resource(new FileSystemResource(USER_FILE_LOCATION))
+				.resource(new FileSystemResource(USER_FILE_LOCATION + '.' + date))
 				.delimited()
 				.names("id", "name")
 				.targetType(User.class)
@@ -128,7 +140,7 @@ class JobConfiguration {
 	}
 
 	@Bean
-	ItemWriter<User> importUserItemWriter(DataSource dataSource) {
+	JdbcBatchItemWriter<User> importUserItemWriter(DataSource dataSource) {
 		return new JdbcBatchItemWriterBuilder<User>()
 				.beanMapped()
 				.dataSource(dataSource)
@@ -148,23 +160,27 @@ class JobConfiguration {
 	}
 
 	@Bean
-	ItemReader<Customer> generatingCustomerFileItemReader() {
-		return new IteratorItemReader<>(IntStream.rangeClosed(1, CUSTOMER_COUNT).mapToObj(i -> new Customer(i, "customer" + i)).iterator());
+	@StepScope
+	IteratorItemReader<Customer> generatingCustomerFileItemReader(@Value("#{jobParameters['" + JOB_PARAMETER_CUSTOMER_COUNT + "']}") int count) {
+		return new IteratorItemReader<>(IntStream.rangeClosed(1, count).mapToObj(i -> new Customer(i, "customer" + i)).iterator());
 	}
 
 	@Bean
-	ItemWriter<Customer> generatingCustomerFileItemWriter() {
+	@StepScope
+	FlatFileItemWriter<Customer> generatingCustomerFileItemWriter(@Value("#{jobParameters['" + JOB_PARAMETER_DATE + "']}") LocalDate date,
+														  @Value("#{jobParameters['" + JOB_PARAMETER_CUSTOMER_COUNT + "']}") int count) {
 		return new FlatFileItemWriterBuilder<Customer>()
 				.name("generatingCustomerFileItemWriter")
-				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION))
+				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION + '.' + date))
 				.delimited()
 				.names("id", "name")
-				.headerCallback(writer -> writer.write(String.valueOf(CUSTOMER_COUNT)))
+				.headerCallback(writer -> writer.write(String.valueOf(count)))
 				.build();
 	}
 
 	@Bean
-	Step importCustomerManagerStep(RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
+	Step importCustomerManagerStep(
+								   RemotePartitioningManagerStepBuilderFactory stepBuilderFactory,
 								   Partitioner importCustomerPartitioner, JdbcTemplate jdbcTemplate,
 								   MessageChannel outputChannel) {
 		return stepBuilderFactory.get("importCustomerManagerStep")
@@ -172,8 +188,8 @@ class JobConfiguration {
 				.listener(new StepExecutionListener() {
 					@Override
 					public ExitStatus afterStep(StepExecution stepExecution) {
-						Integer expectedRows = parseFirstLineAsInteger(new FileSystemResource(CUSTOMER_FILE_LOCATION));
-						Integer actualRows = jdbcTemplate.queryForObject("select count(*) from customer", int.class);
+						Long expectedRows = stepExecution.getJobParameters().getLong(JOB_PARAMETER_CUSTOMER_COUNT);
+						Long actualRows = jdbcTemplate.queryForObject("select count(*) from customer", Long.class);
 						if (!Objects.equals(expectedRows, actualRows)) {
 							return ExitStatus.FAILED.addExitDescription("Expected rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
 						}
@@ -185,11 +201,11 @@ class JobConfiguration {
 				.build();
 	}
 
-	@StepScope
 	@Bean
-	Partitioner importCustomerPartitioner() {
+	@StepScope
+	Partitioner importCustomerPartitioner(@Value("#{jobParameters['" + JOB_PARAMETER_DATE + "']}") LocalDate date) {
 		return (int gridSize) -> {
-			int count = parseFirstLineAsInteger(new FileSystemResource(CUSTOMER_FILE_LOCATION));
+			int count = parseFirstLineAsInteger(new FileSystemResource(CUSTOMER_FILE_LOCATION + '.' + date));
 			int partitionSize = count / gridSize;
 			if (count % gridSize > 0) {
 				partitionSize++;
@@ -202,6 +218,38 @@ class JobConfiguration {
 				partitions.put("partition" + i, executionContext);
 			}
 			return partitions;
+		};
+	}
+
+	@Bean
+	JobParametersValidator validator() {
+		return parameters -> {
+			JobParameter<?> dateParameter = parameters.getParameter(JOB_PARAMETER_DATE);
+			if (dateParameter == null) {
+				throw new JobParametersInvalidException("Missing identifying job parameter \"" + JOB_PARAMETER_DATE + "\"");
+			} else if (!dateParameter.isIdentifying()) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be identifying");
+			} else if (dateParameter.getType() != LocalDate.class) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be an LocalDate");
+			}
+
+			JobParameter<?> userCountParameter = parameters.getParameter(JOB_PARAMETER_USER_COUNT);
+			if (userCountParameter == null) {
+				throw new JobParametersInvalidException("Missing job parameter \"" + JOB_PARAMETER_USER_COUNT + "\"");
+			} else if (userCountParameter.isIdentifying()) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should not be identifying");
+			} else if (userCountParameter.getType() != Long.class) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should be an Long");
+			}
+
+			JobParameter<?> customerCountParameter = parameters.getParameter(JOB_PARAMETER_CUSTOMER_COUNT);
+			if (customerCountParameter == null) {
+				throw new JobParametersInvalidException("Missing job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\"");
+			} else if (customerCountParameter.isIdentifying()) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should not be identifying");
+			} else if (customerCountParameter.getType() != Long.class) {
+				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should be an Long");
+			}
 		};
 	}
 
@@ -235,4 +283,6 @@ class JobConfiguration {
 			throw new RuntimeException(e);
 		}
 	}
+
+
 }

@@ -1,5 +1,6 @@
 package com.example.batch;
 
+import java.time.LocalDate;
 import javax.sql.DataSource;
 
 import org.apache.kafka.clients.admin.NewTopic;
@@ -9,6 +10,7 @@ import org.springframework.batch.integration.partition.RemotePartitioningWorkerS
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
@@ -26,15 +28,16 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import static com.example.batch.JobConfiguration.CHUNK_SIZE;
 import static com.example.batch.JobConfiguration.CUSTOMER_FILE_LOCATION;
+import static com.example.batch.JobConfiguration.JOB_PARAMETER_DATE;
 
 @Configuration
 class WorkerConfiguration {
 
 	@Bean
 	Step importCustomerWorkerStep(RemotePartitioningWorkerStepBuilderFactory stepBuilderFactory,
-					PlatformTransactionManager transactionManager, MessageChannel inputChannel,
-					ItemReader<Customer> importCustomerItemReader, ItemProcessor<Customer, Customer> importCustomerItemProcessor,
-					ItemWriter<Customer> importCustomerItemWriter) {
+								  PlatformTransactionManager transactionManager, MessageChannel inputChannel,
+								  ItemReader<Customer> importCustomerItemReader, ItemProcessor<Customer, Customer> importCustomerItemProcessor,
+								  ItemWriter<Customer> importCustomerItemWriter) {
 		return stepBuilderFactory.get("importCustomerWorkerStep")
 				.inputChannel(inputChannel)
 				.<Customer, Customer>chunk(CHUNK_SIZE, transactionManager)
@@ -46,10 +49,12 @@ class WorkerConfiguration {
 
 	@Bean
 	@StepScope
-	FlatFileItemReader<Customer> importCustomerItemReader(@Value("#{stepExecutionContext['linesToSkip']}") int linesToSkip, @Value("#{stepExecutionContext['maxItemCount']}") int maxItemCount) {
+	FlatFileItemReader<Customer> importCustomerItemReader(@Value("#{jobParameters['" + JOB_PARAMETER_DATE + "']}") LocalDate date,
+														  @Value("#{stepExecutionContext['linesToSkip']}") int linesToSkip,
+														  @Value("#{stepExecutionContext['maxItemCount']}") int maxItemCount) {
 		return new FlatFileItemReaderBuilder<Customer>()
 				.name("importCustomerItemReader")
-				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION))
+				.resource(new FileSystemResource(CUSTOMER_FILE_LOCATION + "." + date))
 				.delimited()
 				.names("id", "name")
 				.targetType(Customer.class)
@@ -71,7 +76,7 @@ class WorkerConfiguration {
 	}
 
 	@Bean
-	ItemWriter<Customer> importCustomerItemWriter(DataSource dataSource) {
+	JdbcBatchItemWriter<Customer> importCustomerItemWriter(DataSource dataSource) {
 		return new JdbcBatchItemWriterBuilder<Customer>()
 				.beanMapped()
 				.dataSource(dataSource)
