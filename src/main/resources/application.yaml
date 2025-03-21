@@ -7,7 +7,7 @@ spring.kafka.consumer:
 spring.kafka.producer:
   value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
-spring.task.execution.pool.coreSize: 10
+spring.task.execution.pool.coreSize: 20
 
 spring.sql.init.mode: always
 spring.batch.jdbc.initialize-schema: always

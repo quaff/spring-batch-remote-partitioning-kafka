@@ -12,20 +12,14 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.apache.kafka.clients.admin.NewTopic;
-import org.springframework.batch.core.ExitStatus;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobParameter;
-import org.springframework.batch.core.JobParametersInvalidException;
-import org.springframework.batch.core.JobParametersValidator;
-import org.springframework.batch.core.Step;
-import org.springframework.batch.core.StepExecution;
-import org.springframework.batch.core.StepExecutionListener;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.Flow;
 import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.integration.partition.RemotePartitioningManagerStepBuilderFactory;
 import org.springframework.batch.integration.partition.StepExecutionRequest;
@@ -39,6 +33,7 @@ import org.springframework.batch.item.file.FlatFileItemWriter;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.item.file.builder.FlatFileItemWriterBuilder;
 import org.springframework.batch.item.support.IteratorItemReader;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -79,12 +74,13 @@ class JobConfiguration {
 	Job demoJob(TaskExecutor taskExecutor, JobRepository jobRepository,
 				Step generatingUserFileStep, Step importUserStep,
 				Step generatingCustomerFileStep, Step importCustomerManagerStep,
-				JobParametersValidator validator) {
+				Step verifyStep, JobParametersValidator validator) {
 		Flow userFlow = new FlowBuilder<Flow>("userFlow").from(generatingUserFileStep).next(importUserStep).end();
 		Flow customerFlow = new FlowBuilder<Flow>("customerFlow").from(generatingCustomerFileStep).next(importCustomerManagerStep).end();
 		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(taskExecutor).add(userFlow, customerFlow).build();
 		return new JobBuilder("demoJob", jobRepository)
 				.start(splitFlow)
+				.next(verifyStep)
 				.end()
 				.validator(validator)
 				.build();
@@ -188,10 +184,11 @@ class JobConfiguration {
 				.listener(new StepExecutionListener() {
 					@Override
 					public ExitStatus afterStep(StepExecution stepExecution) {
+						// for demo, It's covered by verifyStep
 						Long expectedRows = stepExecution.getJobParameters().getLong(JOB_PARAMETER_CUSTOMER_COUNT);
 						Long actualRows = jdbcTemplate.queryForObject("select count(*) from customer", Long.class);
 						if (!Objects.equals(expectedRows, actualRows)) {
-							return ExitStatus.FAILED.addExitDescription("Expected rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
+							return ExitStatus.FAILED.addExitDescription("Expected customer rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
 						}
 						return null;
 					}
@@ -219,6 +216,26 @@ class JobConfiguration {
 			}
 			return partitions;
 		};
+	}
+
+
+	@Bean
+	Step verifyStep(JobRepository jobRepository, PlatformTransactionManager transactionManager, JdbcTemplate jdbcTemplate) {
+		return new StepBuilder("verifyStep", jobRepository).tasklet((contribution, chunkContext) -> {
+					JobParameters parameters = contribution.getStepExecution().getJobParameters();
+					Long expectedRows = parameters.getLong(JOB_PARAMETER_USER_COUNT);
+					Long actualRows = jdbcTemplate.queryForObject("select count(*) from user", Long.class);
+					if (!Objects.equals(expectedRows, actualRows)) {
+						throw new RuntimeException("Expected user rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
+					}
+					expectedRows = parameters.getLong(JOB_PARAMETER_CUSTOMER_COUNT);
+					actualRows = jdbcTemplate.queryForObject("select count(*) from customer", Long.class);
+					if (!Objects.equals(expectedRows, actualRows)) {
+						throw new RuntimeException("Expected customer rows is %d but actual rows is %d".formatted(expectedRows, actualRows));
+					}
+					return RepeatStatus.FINISHED;
+				},transactionManager)
+				.build();
 	}
 
 	@Bean
