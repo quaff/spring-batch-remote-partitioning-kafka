@@ -70,13 +70,13 @@ class JobConfiguration {
 	public static final String CUSTOMER_FILE_LOCATION = "build/customer.txt";
 
 	@Bean
-	Job demoJob(TaskExecutor taskExecutor, JobRepository jobRepository,
+	Job demoJob(TaskExecutor applicationTaskExecutor, JobRepository jobRepository,
 				Step generatingUserFileStep, Step importUserStep,
 				Step generatingCustomerFileStep, Step importCustomerManagerStep,
 				Step verifyStep, JobParametersValidator validator) {
 		Flow userFlow = new FlowBuilder<Flow>("userFlow").from(generatingUserFileStep).next(importUserStep).end();
 		Flow customerFlow = new FlowBuilder<Flow>("customerFlow").from(generatingCustomerFileStep).next(importCustomerManagerStep).end();
-		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(taskExecutor).add(userFlow, customerFlow).build();
+		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(applicationTaskExecutor).add(userFlow, customerFlow).build();
 		return new JobBuilder("demoJob", jobRepository)
 				.start(splitFlow)
 				.next(verifyStep)

@@ -86,10 +86,10 @@ class WorkerConfiguration {
 	}
 
 	@Bean
-	MessageChannel inputChannel(TaskExecutor taskExecutor) {
+	MessageChannel inputChannel(TaskExecutor applicationTaskExecutor) {
 		// return new DirectChannel(); // will execute steps sequentially if concurrency of kafka listener is 1
 		// return new QueueChannel(); // will execute steps sequentially if taskExecutor of PollerMetadata not set
-		return new ExecutorChannel(taskExecutor);
+		return new ExecutorChannel(applicationTaskExecutor);
 	}
 
 	@Bean
