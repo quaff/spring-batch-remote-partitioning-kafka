@@ -23,7 +23,6 @@ import org.springframework.integration.channel.ExecutorChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.kafka.dsl.Kafka;
 import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -93,13 +92,9 @@ class WorkerConfiguration {
 	}
 
 	@Bean
-	IntegrationFlow inboundFlow(MessageChannel inputChannel, ConsumerFactory<String, String> consumerFactory, NewTopic workerTopic) {
+	IntegrationFlow inboundFlow(MessageChannel inputChannel, ConsumerFactory<?, ?> consumerFactory, NewTopic workerTopic) {
 		return IntegrationFlow
-				.from(Kafka.messageDrivenChannelAdapter(consumerFactory, workerTopic.name())
-						.configureListenerContainer(
-								configurer -> configurer.ackMode(ContainerProperties.AckMode.TIME).ackTime(5000)
-						)
-				)
+				.from(Kafka.messageDrivenChannelAdapter(consumerFactory, workerTopic.name()))
 				.channel(inputChannel)
 				.get();
 	}
