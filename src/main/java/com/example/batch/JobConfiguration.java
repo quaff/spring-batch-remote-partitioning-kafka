@@ -14,25 +14,33 @@ import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.job.flow.Flow;
-import org.springframework.batch.core.partition.support.Partitioner;
+import org.springframework.batch.core.job.parameters.InvalidJobParametersException;
+import org.springframework.batch.core.job.parameters.JobParameter;
+import org.springframework.batch.core.job.parameters.JobParameters;
+import org.springframework.batch.core.job.parameters.JobParametersValidator;
+import org.springframework.batch.core.listener.StepExecutionListener;
+import org.springframework.batch.core.partition.Partitioner;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.Step;
+import org.springframework.batch.core.step.StepExecution;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.infrastructure.item.ExecutionContext;
+import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.ItemWriter;
+import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
+import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileItemWriter;
+import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
+import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemWriterBuilder;
+import org.springframework.batch.infrastructure.item.support.IteratorItemReader;
+import org.springframework.batch.infrastructure.repeat.RepeatStatus;
 import org.springframework.batch.integration.partition.RemotePartitioningManagerStepBuilderFactory;
 import org.springframework.batch.integration.partition.StepExecutionRequest;
-import org.springframework.batch.item.ExecutionContext;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.database.JdbcBatchItemWriter;
-import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
-import org.springframework.batch.item.file.FlatFileItemReader;
-import org.springframework.batch.item.file.FlatFileItemWriter;
-import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
-import org.springframework.batch.item.file.builder.FlatFileItemWriterBuilder;
-import org.springframework.batch.item.support.IteratorItemReader;
-import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -91,7 +99,8 @@ class JobConfiguration {
 	Step generatingUserFileStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
 								ItemReader<User> generatingUserFileItemReader, ItemWriter<User> generatingUserFileItemWriter) {
 		return new StepBuilder("generatingUserFileStep", jobRepository)
-				.<User, User>chunk(CHUNK_SIZE, transactionManager)
+				.<User, User>chunk(CHUNK_SIZE)
+                .transactionManager(transactionManager)
 				.reader(generatingUserFileItemReader)
 				.writer(generatingUserFileItemWriter)
 				.build();
@@ -118,7 +127,8 @@ class JobConfiguration {
 	Step importUserStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
 						ItemReader<User> importUserItemReader, ItemWriter<User> importUserItemWriter) {
 		return new StepBuilder("importUserStep", jobRepository)
-				.<User, User>chunk(CHUNK_SIZE, transactionManager)
+				.<User, User>chunk(CHUNK_SIZE)
+                .transactionManager(transactionManager)
 				.reader(importUserItemReader)
 				.writer(importUserItemWriter)
 				.build();
@@ -150,7 +160,8 @@ class JobConfiguration {
 									ItemReader<Customer> generatingCustomerFileItemReader,
 									ItemWriter<Customer> generatingCustomerFileItemWriter) {
 		return new StepBuilder("generatingCustomerFileStep", jobRepository)
-				.<Customer, Customer>chunk(CHUNK_SIZE, transactionManager)
+				.<Customer, Customer>chunk(CHUNK_SIZE)
+                .transactionManager(transactionManager)
 				.reader(generatingCustomerFileItemReader)
 				.writer(generatingCustomerFileItemWriter)
 				.build();
@@ -244,29 +255,29 @@ class JobConfiguration {
 		return parameters -> {
 			JobParameter<?> dateParameter = parameters.getParameter(JOB_PARAMETER_DATE);
 			if (dateParameter == null) {
-				throw new JobParametersInvalidException("Missing identifying job parameter \"" + JOB_PARAMETER_DATE + "\"");
-			} else if (!dateParameter.isIdentifying()) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be identifying");
-			} else if (dateParameter.getType() != LocalDate.class) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be an LocalDate");
+				throw new InvalidJobParametersException("Missing identifying job parameter \"" + JOB_PARAMETER_DATE + "\"");
+			} else if (!dateParameter.identifying()) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be identifying");
+			} else if (dateParameter.type() != LocalDate.class) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_DATE + "\" should be an LocalDate");
 			}
 
 			JobParameter<?> userCountParameter = parameters.getParameter(JOB_PARAMETER_USER_COUNT);
 			if (userCountParameter == null) {
-				throw new JobParametersInvalidException("Missing job parameter \"" + JOB_PARAMETER_USER_COUNT + "\"");
-			} else if (userCountParameter.isIdentifying()) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should not be identifying");
-			} else if (userCountParameter.getType() != Long.class) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should be an Long");
+				throw new InvalidJobParametersException("Missing job parameter \"" + JOB_PARAMETER_USER_COUNT + "\"");
+			} else if (userCountParameter.identifying()) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should not be identifying");
+			} else if (userCountParameter.type() != Long.class) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_USER_COUNT + "\" should be an Long");
 			}
 
 			JobParameter<?> customerCountParameter = parameters.getParameter(JOB_PARAMETER_CUSTOMER_COUNT);
 			if (customerCountParameter == null) {
-				throw new JobParametersInvalidException("Missing job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\"");
-			} else if (customerCountParameter.isIdentifying()) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should not be identifying");
-			} else if (customerCountParameter.getType() != Long.class) {
-				throw new JobParametersInvalidException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should be an Long");
+				throw new InvalidJobParametersException("Missing job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\"");
+			} else if (customerCountParameter.identifying()) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should not be identifying");
+			} else if (customerCountParameter.type() != Long.class) {
+				throw new InvalidJobParametersException("Job parameter \"" + JOB_PARAMETER_CUSTOMER_COUNT + "\" should be an Long");
 			}
 		};
 	}

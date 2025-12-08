@@ -2,9 +2,9 @@ package com.example.batch;
 
 
 import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobParameter;
-import org.springframework.batch.core.JobParameters;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.parameters.JobParameter;
+import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.integration.config.annotation.EnableBatchIntegration;
 import org.springframework.boot.SpringApplication;
@@ -12,7 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ApplicationContext;
 
 import java.time.LocalDate;
-import java.util.Map;
+import java.util.Set;
 
 import static com.example.batch.JobConfiguration.*;
 
@@ -22,14 +22,14 @@ public class DemoApplication {
 
     public static void main(String[] args) throws Exception {
 
-        JobParameter<LocalDate> date = new JobParameter<>(LocalDate.now(), LocalDate.class, true);
-        JobParameter<Long> userCount = new JobParameter<>(1000L, Long.class, false);
-        JobParameter<Long> customerCount = new JobParameter<>(789L, Long.class, false);
-        JobParameters jobParameters = new JobParameters(Map.of(JOB_PARAMETER_DATE, date, JOB_PARAMETER_USER_COUNT, userCount, JOB_PARAMETER_CUSTOMER_COUNT, customerCount));
+        JobParameter<LocalDate> date = new JobParameter<>(JOB_PARAMETER_DATE, LocalDate.now(), LocalDate.class, true);
+        JobParameter<Long> userCount = new JobParameter<>(JOB_PARAMETER_USER_COUNT, 1000L, Long.class, false);
+        JobParameter<Long> customerCount = new JobParameter<>(JOB_PARAMETER_CUSTOMER_COUNT, 789L, Long.class, false);
+        JobParameters jobParameters = new JobParameters(Set.of(date, userCount, customerCount));
 
-        String[] argsToUse = jobParameters.getParameters().entrySet().stream().map(
+        String[] argsToUse = jobParameters.parameters().stream().map(
                 entry ->
-                        String.format("%s=%s,%s,%s", entry.getKey(), entry.getValue().getValue(), entry.getValue().getType().getName(), entry.getValue().isIdentifying())
+                        String.format("%s=%s,%s,%s", entry.name(), entry.value(), entry.type().getName(), entry.identifying())
         ).toArray(String[]::new);
         if (args.length > 0) {
             String[] mergedArgs = new String[argsToUse.length + args.length];

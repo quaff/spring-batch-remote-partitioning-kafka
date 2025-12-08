@@ -1,5 +1,5 @@
 plugins {
-	id("org.springframework.boot").version("3.5.8")
+	id("org.springframework.boot").version("4.0.0")
 	id("io.spring.dependency-management").version("latest.release")
 	java
 }
@@ -12,9 +12,10 @@ repositories {
 }
 
 dependencies {
-	implementation("org.springframework.boot:spring-boot-starter-batch")
-	implementation("org.springframework.batch:spring-batch-integration")
+	implementation("org.springframework.boot:spring-boot-starter-batch-jdbc")
+	implementation("org.springframework.boot:spring-boot-starter-kafka")
 	implementation("org.springframework.boot:spring-boot-starter-integration")
+    implementation("org.springframework.batch:spring-batch-integration")
 	implementation("org.springframework.integration:spring-integration-kafka")
 	implementation("com.fasterxml.jackson.core:jackson-databind")
 	runtimeOnly("org.springframework.boot:spring-boot-docker-compose")
@@ -23,10 +24,10 @@ dependencies {
 	testImplementation("org.springframework.batch:spring-batch-test")
 	testImplementation("org.springframework.boot:spring-boot-testcontainers")
 	testImplementation("org.testcontainers:junit-jupiter")
-	testImplementation("org.testcontainers:mysql")
-	testImplementation("org.testcontainers:kafka")
+	testImplementation("org.testcontainers:testcontainers-mysql")
+	testImplementation("org.testcontainers:testcontainers-kafka")
 }
 
-tasks.withType<Test>() {
+tasks.withType<Test> {
 	useJUnitPlatform()
 }
