@@ -4,16 +4,16 @@ import java.time.LocalDate;
 import javax.sql.DataSource;
 
 import org.apache.kafka.clients.admin.NewTopic;
-import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.step.Step;
+import org.springframework.batch.infrastructure.item.ItemProcessor;
+import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.ItemWriter;
+import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
+import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
+import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.integration.partition.RemotePartitioningWorkerStepBuilderFactory;
-import org.springframework.batch.item.ItemProcessor;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.database.JdbcBatchItemWriter;
-import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
-import org.springframework.batch.item.file.FlatFileItemReader;
-import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,7 +40,8 @@ class WorkerConfiguration {
 								  ItemWriter<Customer> importCustomerItemWriter) {
 		return stepBuilderFactory.get("importCustomerWorkerStep")
 				.inputChannel(inputChannel)
-				.<Customer, Customer>chunk(CHUNK_SIZE, transactionManager)
+				.<Customer, Customer>chunk(CHUNK_SIZE)
+                .transactionManager(transactionManager)
 				.reader(importCustomerItemReader)
 				.processor(importCustomerItemProcessor)
 				.writer(importCustomerItemWriter)
