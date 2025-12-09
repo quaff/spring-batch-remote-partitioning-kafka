@@ -55,6 +55,8 @@ import javax.sql.DataSource;
 @Configuration
 class JobConfiguration {
 
+	public static final String JOB_NAME_DEMO = "demoJob";
+
 	public static final String JOB_PARAMETER_DATE = "date";
 
 	public static final String JOB_PARAMETER_USER_COUNT = "user.count";
@@ -77,7 +79,7 @@ class JobConfiguration {
 		Flow userFlow = new FlowBuilder<Flow>("userFlow").from(generatingUserFileStep).next(importUserStep).end();
 		Flow customerFlow = new FlowBuilder<Flow>("customerFlow").from(generatingCustomerFileStep).next(importCustomerManagerStep).end();
 		Flow splitFlow = new FlowBuilder<Flow>("splitFlow").split(applicationTaskExecutor).add(userFlow, customerFlow).build();
-		return new JobBuilder("demoJob", jobRepository)
+		return new JobBuilder(JOB_NAME_DEMO, jobRepository)
 				.start(splitFlow)
 				.next(verifyStep)
 				.end()
