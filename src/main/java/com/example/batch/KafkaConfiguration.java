@@ -8,12 +8,13 @@ import org.springframework.kafka.config.TopicBuilder;
 @Configuration
 class KafkaConfiguration {
 
-	private static final String TOPIC_NAME = "worker";
+	private static final String TOPIC_NAME_WORKER = "worker";
+
 	private static final int TOPIC_PARTITION_COUNT = 3;
 
 	@Bean
 	NewTopic workerTopic() {
-		return TopicBuilder.name(TOPIC_NAME)
+		return TopicBuilder.name(TOPIC_NAME_WORKER)
 				.partitions(TOPIC_PARTITION_COUNT)
 				.build();
 	}
