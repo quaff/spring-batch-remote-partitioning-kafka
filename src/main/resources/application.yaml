@@ -7,6 +7,8 @@ spring.kafka.consumer:
 spring.kafka.producer:
   value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
+spring.docker.compose.stop.command: down
+
 spring.task.execution.pool.coreSize: 20
 
 spring.sql.init.mode: always
